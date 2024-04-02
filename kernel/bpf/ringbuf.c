@@ -11,6 +11,8 @@
 #include <linux/kmemleak.h>
 #include <uapi/linux/btf.h>
 #include <linux/btf_ids.h>
+/* include the persistence module */
+#include "persist.h"
 
 #define RINGBUF_CREATE_FLAG_MASK (BPF_F_NUMA_NODE)
 
@@ -186,6 +188,7 @@ static struct bpf_ringbuf *bpf_ringbuf_alloc(size_t data_sz, int numa_node)
 static struct bpf_map *ringbuf_map_alloc(union bpf_attr *attr)
 {
 	struct bpf_ringbuf_map *rb_map;
+	printk(KERN_INFO "Hello from alloc\n");
 
 	if (attr->map_flags & ~RINGBUF_CREATE_FLAG_MASK)
 		return ERR_PTR(-EINVAL);
@@ -206,6 +209,8 @@ static struct bpf_map *ringbuf_map_alloc(union bpf_attr *attr)
 		bpf_map_area_free(rb_map);
 		return ERR_PTR(-ENOMEM);
 	}
+	/* open the persistent file */
+	bpf_persist_map_open(attr->map_id, attr->map_name, "/tmp/map.bin", 1024);
 
 	return &rb_map->map;
 }
@@ -488,6 +493,12 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 	 */
 	rec_pos = (void *)hdr - (void *)rb->data;
 	cons_pos = smp_load_acquire(&rb->consumer_pos) & rb->mask;
+
+	bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_pos);
+
+	/* update the persistent map header with the consumer and producer positions */
+	bpf_persist_map_update_cons_pos(rb->consumer_pos);
+	bpf_persist_map_update_prod_pos(rb->producer_pos);
 
 	if (flags & BPF_RB_FORCE_WAKEUP)
 		irq_work_queue(&rb->work);
