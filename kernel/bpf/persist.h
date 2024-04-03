@@ -9,6 +9,7 @@
 #define __BPF_PERSIST_H_
 
 #include <linux/types.h>
+#include <linux/fs.h>
 
 /* 8-byte ring buffer record header structure, same as struct bpf_ringbuf_hdr */
 struct bpf_ringbuf_record {
@@ -28,8 +29,23 @@ struct bpf_persist_map_hdr {
 	enum persist_type p_type;
 };
 
+/* struct for bpf_persistd data */
+struct bpf_persistd_data {
+	struct file *file;
+	volatile bool do_fsync;
+};
+
+/* bpf_persistd thread */
+int bpf_persistd(void *);
+
+/* function to init kthread for bpf_persistd */
+int initialize_kthread(void);
+
 /* open a file for persistence */
 int bpf_persist_map_open(u32 id, char *name, char *filepath, u32 size);
+
+/* write the map_hdr section of the persistent file */
+int __bpf_persist_map_write_hdr(void);
 
 /* commit the reserved region */
 int bpf_persist_map_write(struct bpf_ringbuf_record *hdr,

@@ -494,11 +494,11 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 	rec_pos = (void *)hdr - (void *)rb->data;
 	cons_pos = smp_load_acquire(&rb->consumer_pos) & rb->mask;
 
-	bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_pos);
-
-	/* update the persistent map header with the consumer and producer positions */
+	/* update the persistent map header with the consumer and producer positions 
+	 * then write the data out to file */
 	bpf_persist_map_update_cons_pos(rb->consumer_pos);
 	bpf_persist_map_update_prod_pos(rb->producer_pos);
+	bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_pos);
 
 	if (flags & BPF_RB_FORCE_WAKEUP)
 		irq_work_queue(&rb->work);
