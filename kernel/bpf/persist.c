@@ -26,20 +26,14 @@ int bpf_persistd(void *data)
 {
 	struct bpf_persistd_data *d = (struct bpf_persistd_data *)data;
 
-	printk(KERN_INFO "[bpf_persistd]: thread started \n");
-
 	while (!kthread_should_stop()) {
 		if (READ_ONCE(d->do_fsync)) {
-			printk(KERN_INFO "[bpf_persistd]: doing fsync\n");
 			vfs_fsync(d->file, 1);
 			WRITE_ONCE(d->do_fsync, false);
-			printk(KERN_INFO "[bpf_persistd]: done fsync\n");
 		}
 
 		// sleep after doing this job until woken up again
-		printk(KERN_INFO "[bpf_persistd]: going to sleep\n");
 		schedule_timeout_interruptible(MAX_SCHEDULE_TIMEOUT);
-		printk(KERN_INFO "[bpf_persistd]: woke up\n");
 	}
 
 	printk(KERN_INFO "[bpf_persistd]: thread stopped \n");
@@ -81,11 +75,6 @@ int bpf_persist_map_open(u32 id, char *name, char *filepath, u32 size)
 		kfree(map_hdr);
 		return PTR_ERR(file);
 	}
-	printk(KERN_INFO "BPF_PERSIST: Map file created %s\n", filepath);
-	printk(KERN_INFO "BPF_PERSIST: sizeof map header %ld\n",
-	       sizeof(*map_hdr));
-	printk(KERN_INFO "BPF_PERSIST: sizeof record header %ld\n",
-	       sizeof(struct bpf_ringbuf_record));
 
 	/* setup bpf_persistd and start the kthread */
 	persistd_data = kzalloc(sizeof(struct bpf_persistd_data), GFP_ATOMIC);
@@ -97,14 +86,10 @@ int bpf_persist_map_open(u32 id, char *name, char *filepath, u32 size)
 	kernel_write(file, map_hdr, sizeof(*map_hdr), 0);
 
 	/* call fsync on it */
-	/* check and wait for do_fsync to be false */
-	while (READ_ONCE(persistd_data->do_fsync)) {
-		printk(KERN_WARNING
-		       "BPF_PERSIST: do_fsync was true and we entered another write\n");
-	}
+	/* if do_fsync is true here, the locks are broken */
+	BUG_ON(READ_ONCE(persistd_data->do_fsync));
 
-	printk(KERN_INFO "BPF_PERSIST: setting do_fsync");
-
+	/* set do_fsync to true */
 	WRITE_ONCE(persistd_data->do_fsync, true);
 
 	/* wake the kthread */
@@ -134,14 +119,11 @@ int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_pos)
 	       hdr->len, hdr->pg_off);
 	kernel_write(file, hdr, hdr->len + 8, &offset);
 
-	/* check and wait for do_fsync to be false */
-	while (READ_ONCE(persistd_data->do_fsync)) {
-		printk(KERN_WARNING
-		       "BPF_PERSIST: do_fsync was true and we entered another write\n");
-	}
+	/* call fsync on it */
+	/* if do_fsync is true here, the locks are broken */
+	BUG_ON(READ_ONCE(persistd_data->do_fsync));
 
-	printk(KERN_INFO "BPF_PERSIST: setting do_fsync");
-
+	/* set do_fsync to true */
 	WRITE_ONCE(persistd_data->do_fsync, true);
 
 	/* wake the kthread */
