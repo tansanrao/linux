@@ -16,10 +16,22 @@
 #define SCAN_INTERVAL_MS 10
 
 struct bpf_persistd_data *persistd_data;
-struct file *file;
-struct bpf_persist_map_hdr *map_hdr;
+struct file **file;
+struct bpf_persist_map_hdr **map_hdr;
+int refcnt = 0;
 char filepath[100];
 static struct task_struct *kth_ptr;
+void *prep_buf_ptr, *req_buf_ptr;
+
+/* helper to get rb address from rec_hdr */
+void *bpf_ringbuf_restore_from_record(struct bpf_ringbuf_record *hdr)
+{
+	unsigned long addr = (unsigned long)(void *)hdr;
+	unsigned long off = (unsigned long)hdr->pg_off << PAGE_SHIFT;
+
+	return (void*)((addr & PAGE_MASK) - off);
+}
+
 
 /* kthread for bpf_persistd */
 int bpf_persistd(void *data)
@@ -56,34 +68,52 @@ int initialize_kthread()
 	return 0;
 }
 
-int bpf_persist_map_open(u32 id, char *name, char *filepath, u32 size)
+int bpf_persist_map_open(u32 id, char *name, void *rb_ptr, u32 size)
 {
-	/* Create the persistent map header */
-	map_hdr = kzalloc(sizeof(struct bpf_persist_map_hdr), GFP_ATOMIC);
+	unsigned int rec_id;
+	if (strcmp(name, "map_prepare_buf") == 0) {
+		rec_id = 0;
+		strcpy(filepath, "/tmp/map_prepare_buf.bin");
+		prep_buf_ptr = rb_ptr;
+	} else {
+		rec_id = 1;
+		strcpy(filepath, "/tmp/map_request_buf.bin");
+		req_buf_ptr = rb_ptr;
+	}
 
-	map_hdr->id = id;
-	strscpy(map_hdr->name, name, 16);
-	map_hdr->cons_pos = 0;
-	map_hdr->prod_pos = 0;
+	if(refcnt == 0) {
+		map_hdr = kzalloc(sizeof(**map_hdr) * 2, GFP_ATOMIC);
+		file = kzalloc(sizeof(**file) * 2, GFP_ATOMIC);
+	}
+
+	/* Create the persistent map header */
+	map_hdr[rec_id] = kzalloc(sizeof(struct bpf_persist_map_hdr), GFP_ATOMIC);
+
+	map_hdr[rec_id]->id = id;
+	strscpy(map_hdr[rec_id]->name, name, 16);
+	map_hdr[rec_id]->cons_pos = 0;
+	map_hdr[rec_id]->prod_pos = 0;
 
 	// Open or create the file with write permissions
 	// Note: Using O_WRONLY | O_CREAT to write and create the file if it does not exist
-	file = filp_open(filepath, O_WRONLY | O_CREAT | O_TRUNC | O_LARGEFILE, 0644);
-	if (IS_ERR(file)) {
+	file[rec_id] = filp_open(filepath, O_WRONLY | O_CREAT | O_TRUNC | O_LARGEFILE, 0644);
+	if (IS_ERR(file[rec_id])) {
 		printk(KERN_ERR "BPF_PERSIST: Error opening file %s\n",
 		       filepath);
-		kfree(map_hdr);
-		return PTR_ERR(file);
+		kfree(map_hdr[rec_id]);
+		return PTR_ERR(file[rec_id]);
 	}
+
+	refcnt++;
 
 	/* setup bpf_persistd and start the kthread */
 	persistd_data = kzalloc(sizeof(struct bpf_persistd_data), GFP_ATOMIC);
-	persistd_data->file = file;
+	persistd_data->file = file[rec_id];
 	persistd_data->do_fsync = false;
 	initialize_kthread();
 
 	/* write the persistent map header */
-	kernel_write(file, map_hdr, sizeof(*map_hdr), 0);
+	kernel_write(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
 
 	/* call fsync on it */
 	/* if do_fsync is true here, the locks are broken */
@@ -102,28 +132,41 @@ int bpf_persist_map_open(u32 id, char *name, char *filepath, u32 size)
 	return 0;
 }
 
-int __bpf_persist_map_write_hdr()
+int __bpf_persist_map_write_hdr(void *rb_ptr)
 {
+	unsigned int rec_id;
+	if (prep_buf_ptr == rb_ptr) {
+		rec_id = 0;
+	} else {
+		rec_id = 1;
+	}
 	/* write the persistent map header */
-	kernel_write(file, map_hdr, sizeof(*map_hdr), 0);
+	kernel_write(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
 
 	return 0;
 }
 
 int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_pos)
 {
-	__bpf_persist_map_write_hdr();
+	unsigned int rec_id;
+	void* rb_ptr = bpf_ringbuf_restore_from_record(hdr);
 
-	loff_t offset = rec_pos + sizeof(*map_hdr);
-	printk(KERN_INFO "BPF_PERSIST: new record! len=%d, pg_off=%d \n",
-	       hdr->len, hdr->pg_off);
-	kernel_write(file, hdr, hdr->len + 8, &offset);
+	if (prep_buf_ptr == rb_ptr) {
+		rec_id = 0;
+	} else {
+		rec_id = 1;
+	}
+	__bpf_persist_map_write_hdr(rb_ptr);
+
+	loff_t offset = rec_pos + sizeof(**map_hdr);
+	kernel_write(file[rec_id], hdr, hdr->len + 8, &offset);
 
 	/* call fsync on it */
 	/* if do_fsync is true here, the locks are broken */
 	BUG_ON(READ_ONCE(persistd_data->do_fsync));
 
 	/* set do_fsync to true */
+	WRITE_ONCE(persistd_data->file, file[rec_id]);
 	WRITE_ONCE(persistd_data->do_fsync, true);
 
 	/* wake the kthread */
@@ -136,26 +179,29 @@ int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_pos)
 	return 0;
 }
 
-void bpf_persist_map_update_cons_pos(unsigned long pos)
+void bpf_persist_map_close(char *name)
 {
-	map_hdr->cons_pos = pos;
-}
+	unsigned int rec_id;
+	if (strcmp(name, "map_prepare_buf") == 0) {
+		rec_id = 0;
+	} else {
+		rec_id = 1;
+	}
 
-void bpf_persist_map_update_prod_pos(unsigned long pos)
-{
-	map_hdr->prod_pos = pos;
-}
-
-void bpf_persist_map_close()
-{
 	/* Close the file if it's open */
-	if (file) {
-		filp_close(file, NULL);
+	if (file[rec_id]) {
+		filp_close(file[rec_id], NULL);
 	}
 
 	/* Free the allocated map header */
-	if (map_hdr) {
+	if (map_hdr[rec_id]) {
+		kfree(map_hdr[rec_id]);
+		refcnt--;
+	}
+
+	if (refcnt == 0) {
 		kfree(map_hdr);
+		kfree(file);
 	}
 
 	printk(KERN_INFO

@@ -210,7 +210,7 @@ static struct bpf_map *ringbuf_map_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 	/* open the persistent file */
-	bpf_persist_map_open(attr->map_id, attr->map_name, "/tmp/map.bin", 1024);
+	bpf_persist_map_open(attr->map_id, attr->map_name, (void *)rb_map->rb, 1024);
 
 	return &rb_map->map;
 }
@@ -494,10 +494,8 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 	rec_pos = (void *)hdr - (void *)rb->data;
 	cons_pos = smp_load_acquire(&rb->consumer_pos) & rb->mask;
 
-	/* update the persistent map header with the consumer and producer positions 
+	/* update the persistent map header with the consumer and producer positions S
 	 * then write the data out to file */
-	bpf_persist_map_update_cons_pos(rb->consumer_pos);
-	bpf_persist_map_update_prod_pos(rb->producer_pos);
 	bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_pos);
 
 	if (flags & BPF_RB_FORCE_WAKEUP)

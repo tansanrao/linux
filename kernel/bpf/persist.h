@@ -35,6 +35,8 @@ struct bpf_persistd_data {
 	volatile bool do_fsync;
 };
 
+void *bpf_ringbuf_restore_from_record(struct bpf_ringbuf_record *hdr);
+
 /* bpf_persistd thread */
 int bpf_persistd(void *);
 
@@ -42,21 +44,15 @@ int bpf_persistd(void *);
 int initialize_kthread(void);
 
 /* open a file for persistence */
-int bpf_persist_map_open(u32 id, char *name, char *filepath, u32 size);
+int bpf_persist_map_open(u32 id, char *name, void *rb_ptr, u32 size);
 
 /* write the map_hdr section of the persistent file */
-int __bpf_persist_map_write_hdr(void);
+int __bpf_persist_map_write_hdr(void *rb_ptr);
 
 /* commit the reserved region */
 int bpf_persist_map_write(struct bpf_ringbuf_record *hdr,
 			  unsigned long rec_pos);
 
 /* close the file */
-void bpf_persist_map_close(void);
-
-/* write the consumer position to map header */
-void bpf_persist_map_update_cons_pos(unsigned long pos);
-
-/* write the consumer position to map header */
-void bpf_persist_map_update_prod_pos(unsigned long pos);
+void bpf_persist_map_close(char *name);
 #endif
