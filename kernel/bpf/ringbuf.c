@@ -235,6 +235,7 @@ static void ringbuf_map_free(struct bpf_map *map)
 
 	rb_map = container_of(map, struct bpf_ringbuf_map, map);
 	bpf_ringbuf_free(rb_map->rb);
+	bpf_persist_map_close(map->name);
 	bpf_map_area_free(rb_map);
 }
 
