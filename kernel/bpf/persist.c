@@ -10,7 +10,6 @@
 #include <linux/timer.h>
 #include <linux/kthread.h>
 #include <linux/sched.h>
-
 #include "persist.h"
 
 #define SCAN_INTERVAL_MS 10
@@ -22,6 +21,28 @@ int refcnt = 0;
 char filepath[100];
 static struct task_struct *kth_ptr;
 void *prep_buf_ptr, *req_buf_ptr;
+
+/* Calculate padding needed to align to the next block size */
+static inline size_t calc_padding(size_t len)
+{
+	return (BLOCK_SIZE - (len % BLOCK_SIZE)) % BLOCK_SIZE;
+}
+
+/* Write data with padding for block alignment */
+static int write_padded(struct file *file, void *data, size_t len, loff_t *pos)
+{
+	size_t padding = calc_padding(len);
+	static const char zeros[BLOCK_SIZE] = { 0 };
+
+	int ret = kernel_write(file, data, len, pos);
+	if (ret < 0)
+		return ret;
+
+	if (padding > 0) {
+		ret = kernel_write(file, zeros, padding, pos);
+	}
+	return ret;
+}
 
 /* helper to get rb address from rec_hdr */
 void *bpf_ringbuf_restore_from_record(struct bpf_ringbuf_record *hdr)
@@ -141,7 +162,7 @@ int __bpf_persist_map_write_hdr(void *rb_ptr)
 		rec_id = 1;
 	}
 	/* write the persistent map header */
-	kernel_write(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
+	write_padded(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
 
 	return 0;
 }
@@ -158,8 +179,11 @@ int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_pos)
 	}
 	__bpf_persist_map_write_hdr(rb_ptr);
 
-	loff_t offset = rec_pos + sizeof(**map_hdr);
-	kernel_write(file[rec_id], hdr, hdr->len + 8, &offset);
+	loff_t offset =
+		(rec_pos / BLOCK_SIZE + 1) * BLOCK_SIZE; // Align to next block
+
+	printk(KERN_INFO "BPF_PERSIST: writing record of length %d at offset %ld \n", hdr->len + 8, offset);
+	write_padded(file[rec_id], hdr, hdr->len + 8, &offset);
 
 	/* call fsync on it */
 	/* if do_fsync is true here, the locks are broken */
