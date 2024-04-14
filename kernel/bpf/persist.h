@@ -51,7 +51,7 @@ int __bpf_persist_map_write_hdr(void *rb_ptr);
 
 /* commit the reserved region */
 int bpf_persist_map_write(struct bpf_ringbuf_record *hdr,
-			  unsigned long rec_pos);
+			  unsigned long rec_idx);
 
 /* close the file */
 void bpf_persist_map_close(char *name);

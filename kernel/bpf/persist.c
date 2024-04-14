@@ -39,7 +39,7 @@ static int write_padded(struct file *file, void *data, size_t len, loff_t *pos)
 		return ret;
 
 	if (padding > 0) {
-		ret = kernel_write(file, zeros, padding, pos);
+		ret = kernel_write(file, zeros, padding, pos + len);
 	}
 	return ret;
 }
@@ -167,7 +167,7 @@ int __bpf_persist_map_write_hdr(void *rb_ptr)
 	return 0;
 }
 
-int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_pos)
+int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_idx)
 {
 	unsigned int rec_id;
 	void* rb_ptr = bpf_ringbuf_restore_from_record(hdr);
@@ -179,10 +179,7 @@ int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_pos)
 	}
 	__bpf_persist_map_write_hdr(rb_ptr);
 
-	loff_t offset =
-		(rec_pos / BLOCK_SIZE + 1) * BLOCK_SIZE; // Align to next block
-
-	printk(KERN_INFO "BPF_PERSIST: writing record of length %d at offset %ld \n", hdr->len + 8, offset);
+	loff_t offset = (rec_idx + 1) * BLOCK_SIZE;
 	write_padded(file[rec_id], hdr, hdr->len + 8, &offset);
 
 	/* call fsync on it */

@@ -497,7 +497,8 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 
 	/* update the persistent map header with the consumer and producer positions S
 	 * then write the data out to file */
-	bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_pos);
+	unsigned int rec_idx = rec_pos / (hdr->len + 8);
+	bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_idx);
 
 	if (flags & BPF_RB_FORCE_WAKEUP)
 		irq_work_queue(&rb->work);
