@@ -31,15 +31,22 @@ static inline size_t calc_padding(size_t len)
 /* Write data with padding for block alignment */
 static int write_padded(struct file *file, void *data, size_t len, loff_t *pos)
 {
+	loff_t offset;
+	if (pos == 0) {
+		offset = 0;
+	} else {
+		offset = *pos;
+	}
 	size_t padding = calc_padding(len);
 	static const char zeros[BLOCK_SIZE] = { 0 };
 
-	int ret = kernel_write(file, data, len, pos);
+	int ret = kernel_write(file, data, len, &offset);
 	if (ret < 0)
 		return ret;
 
 	if (padding > 0) {
-		ret = kernel_write(file, zeros, padding, pos + len);
+		offset += ret;
+		ret = kernel_write(file, zeros, padding, &offset);
 	}
 	return ret;
 }
@@ -134,7 +141,7 @@ int bpf_persist_map_open(u32 id, char *name, void *rb_ptr, u32 size)
 	initialize_kthread();
 
 	/* write the persistent map header */
-	kernel_write(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
+	write_padded(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
 
 	/* call fsync on it */
 	/* if do_fsync is true here, the locks are broken */
