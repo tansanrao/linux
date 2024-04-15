@@ -223,6 +223,8 @@ void bpf_persist_map_close(char *name)
 	if (refcnt == 0) {
 		kfree(map_hdr);
 		kfree(file);
+		kthread_stop(kth_ptr);
+		kfree(persistd_data);
 	}
 
 	printk(KERN_INFO
