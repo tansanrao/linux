@@ -138,6 +138,8 @@ int bpf_persist_map_open(u32 id, char *name, void *rb_ptr, u32 size)
 		persistd_data->length = 0;
 		persistd_data->done = true;
 		spin_lock_init(&persistd_data->lock);
+		/* init kthread */
+		initialize_kthread();
 	}
 
 	/* Create the persistent map header */
@@ -159,9 +161,6 @@ int bpf_persist_map_open(u32 id, char *name, void *rb_ptr, u32 size)
 	}
 
 	refcnt++;
-
-	/* init kthread */
-	initialize_kthread();
 
 	/* write the persistent map header */
 	write_padded(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
