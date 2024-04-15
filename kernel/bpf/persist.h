@@ -32,7 +32,11 @@ struct bpf_persist_map_hdr {
 /* struct for bpf_persistd data */
 struct bpf_persistd_data {
 	struct file *file;
-	volatile bool do_fsync;
+	char * write_buffer; // start address of buffer that needs to be written
+	u64 length;
+	loff_t offset;
+	bool done;
+	spinlock_t lock;
 };
 
 void *bpf_ringbuf_restore_from_record(struct bpf_ringbuf_record *hdr);
