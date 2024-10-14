@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Functions to provide persistence to eBPF maps
+ * Persistence Framework for eBPF Maps
  *
  * Copyright (c) 2024 Tanuj Ravi Rao
  */
@@ -15,94 +15,31 @@
 #define SCAN_INTERVAL_MS 10
 
 struct file **file;
-struct bpf_persist_map_hdr **map_hdr;
-int refcnt = 0;
-char filepath[100];
-void *prep_buf_ptr, *req_buf_ptr;
 
-/* bpf_persistd stuff */
+/* ccmapd related */
+unsigned int refcnt = 0;
 static struct task_struct *kth_ptr;
-struct bpf_persistd_data *persistd_data;
+struct ccmapd_data *ccmapd_data;
 unsigned long flags;
 
 
-/* Calculate padding needed to align to the next block size */
-static inline size_t calc_padding(size_t len)
+/* kthread for ccmapd */
+int ccmapd(void *data)
 {
-	return (BLOCK_SIZE - (len % BLOCK_SIZE)) % BLOCK_SIZE;
-}
-
-/* Write data with padding for block alignment */
-static int write_padded(struct file *file, void *data, size_t len, loff_t *pos)
-{
-	/* acquire lock */
-	spin_lock_irqsave(&persistd_data->lock, flags);
-
-	/* if done is false here, something is broken */
-	BUG_ON(!READ_ONCE(persistd_data->done));
-
-	/* prepare job for kthread */
-	persistd_data->file = file;
-	persistd_data->write_buffer = kzalloc(BLOCK_SIZE, GFP_ATOMIC);
-	memcpy(persistd_data->write_buffer, data, len);
-	persistd_data->length = len;
-	if (pos == 0)
-		persistd_data->offset = 0;
-	else
-		persistd_data->offset = *pos;
-
-	/* set done to false */
-	WRITE_ONCE(persistd_data->done, false);
-
-	/* wake the kthread */
-	wake_up_process(kth_ptr);
-
-	/* wait for done to be true and free the buffer */
-	while (!READ_ONCE(persistd_data->done))
-		cpu_relax();
-
-	kfree(persistd_data->write_buffer);
-
-	/* release lock */
-	spin_unlock_irqrestore(&persistd_data->lock, flags);
-
-	return BLOCK_SIZE;
-}
-
-/* helper to get rb address from rec_hdr */
-void *bpf_ringbuf_restore_from_record(struct bpf_ringbuf_record *hdr)
-{
-	unsigned long addr = (unsigned long)(void *)hdr;
-	unsigned long off = (unsigned long)hdr->pg_off << PAGE_SHIFT;
-
-	return (void*)((addr & PAGE_MASK) - off);
-}
-
-
-/* kthread for bpf_persistd */
-int bpf_persistd(void *data)
-{
-	struct bpf_persistd_data *d = (struct bpf_persistd_data *)data;
-
 	while (!kthread_should_stop()) {
-		if (!READ_ONCE(d->done)) {
-			kernel_write(d->file, d->write_buffer, d->length, &d->offset);
-			WRITE_ONCE(d->done, true);
-		}
-
-		// sleep after doing this job until woken up again
+		// if queue empty, sleep until woken up
 		schedule_timeout_interruptible(MAX_SCHEDULE_TIMEOUT);
 	}
 
-	printk(KERN_INFO "[bpf_persistd]: thread stopped \n");
+	printk(KERN_INFO "[ccmapd]: thread stopped\n");
 	return 0;
 }
 
-int initialize_kthread()
+int bpf_persist_kthread_init(void)
 {
 	char th_name[20];
-	sprintf(th_name, "bpf_persistd");
-	kth_ptr = kthread_create(bpf_persistd, persistd_data,
+	sprintf(th_name, "ccmapd");
+	kth_ptr = kthread_create(ccmapd, ccmapd_data,
 				 (const char *)th_name);
 	if (kth_ptr != NULL) {
 		wake_up_process(kth_ptr);
@@ -116,117 +53,29 @@ int initialize_kthread()
 
 int bpf_persist_map_open(u32 id, char *name, void *rb_ptr, u32 size)
 {
-	unsigned int rec_id;
-	if (strcmp(name, "map_prepare_buf") == 0) {
-		rec_id = 0;
-		strcpy(filepath, "/mnt/persist/map_prepare_buf.bin");
-		prep_buf_ptr = rb_ptr;
-	} else {
-		rec_id = 1;
-		strcpy(filepath, "/mnt/persist/map_request_buf.bin");
-		req_buf_ptr = rb_ptr;
-	}
-
+	/* Initialize ccmapd if it isn't already running */
 	if(refcnt == 0) {
-		map_hdr = kzalloc(sizeof(**map_hdr) * 2, GFP_ATOMIC);
 		file = kzalloc(sizeof(**file) * 2, GFP_ATOMIC);
-		/* setup bpf_persistd */
-		persistd_data =
-			kzalloc(sizeof(struct bpf_persistd_data), GFP_ATOMIC);
-		persistd_data->file = NULL;
-		persistd_data->write_buffer = NULL;
-		persistd_data->length = 0;
-		persistd_data->done = true;
-		spin_lock_init(&persistd_data->lock);
+		/* setup ccmapd */
+		ccmapd_data =
+			kzalloc(sizeof(struct ccmapd_data), GFP_ATOMIC);
 		/* init kthread */
-		initialize_kthread();
+		bpf_persist_kthread_init();
 	}
-
-	/* Create the persistent map header */
-	map_hdr[rec_id] = kzalloc(sizeof(struct bpf_persist_map_hdr), GFP_ATOMIC);
-
-	map_hdr[rec_id]->id = id;
-	strscpy(map_hdr[rec_id]->name, name, 16);
-	map_hdr[rec_id]->cons_pos = 0;
-	map_hdr[rec_id]->prod_pos = 0;
-
-	// Open or create the file with write permissions
-	// Note: Using O_WRONLY | O_CREAT to write and create the file if it does not exist
-	file[rec_id] = filp_open(filepath, O_WRONLY | O_CREAT | O_TRUNC | O_DSYNC | O_LARGEFILE, 0644);
-	if (IS_ERR(file[rec_id])) {
-		printk(KERN_ERR "BPF_PERSIST: Error opening file %s\n",
-		       filepath);
-		kfree(map_hdr[rec_id]);
-		return PTR_ERR(file[rec_id]);
-	}
-
 	refcnt++;
-
-	/* write the persistent map header */
-	write_padded(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
-
-	return 0;
-}
-
-int __bpf_persist_map_write_hdr(void *rb_ptr)
-{
-	unsigned int rec_id;
-	if (prep_buf_ptr == rb_ptr) {
-		rec_id = 0;
-	} else {
-		rec_id = 1;
-	}
-	/* write the persistent map header */
-	write_padded(file[rec_id], map_hdr[rec_id], sizeof(**map_hdr), 0);
-
-	return 0;
-}
-
-int bpf_persist_map_write(struct bpf_ringbuf_record *hdr, unsigned long rec_idx)
-{
-	unsigned int rec_id;
-	void* rb_ptr = bpf_ringbuf_restore_from_record(hdr);
-
-	if (prep_buf_ptr == rb_ptr) {
-		rec_id = 0;
-	} else {
-		rec_id = 1;
-	}
-	__bpf_persist_map_write_hdr(rb_ptr);
-
-	loff_t offset = (rec_idx + 1) * BLOCK_SIZE;
-	write_padded(file[rec_id], hdr, hdr->len + 8, &offset);
 
 	return 0;
 }
 
 void bpf_persist_map_close(char *name)
 {
-	unsigned int rec_id;
-	if (strcmp(name, "map_prepare_buf") == 0) {
-		rec_id = 0;
-	} else {
-		rec_id = 1;
-	}
-
-	/* Close the file if it's open */
-	if (file[rec_id]) {
-		filp_close(file[rec_id], NULL);
-	}
-
-	/* Free the allocated map header */
-	if (map_hdr[rec_id]) {
-		kfree(map_hdr[rec_id]);
-		refcnt--;
-	}
-
-	if (refcnt == 0) {
-		kfree(map_hdr);
-		kfree(file);
-		kthread_stop(kth_ptr);
-		kfree(persistd_data);
-	}
-
+	refcnt--;
 	printk(KERN_INFO
-	       "BPF_PERSIST: Map and file resources have been released\n");
+	       "[ccmapd]: Map and file resources have been released\n");
+	/* Cleanup and unload kthread if this is the last instance */
+	if (refcnt == 0) {
+		kthread_stop(kth_ptr);
+		kfree(ccmapd_data);
+		printk(KERN_INFO "[ccmapd]: Kthread stopped\n");
+	}
 }
