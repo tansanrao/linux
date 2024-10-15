@@ -210,7 +210,7 @@ static struct bpf_map *ringbuf_map_alloc(union bpf_attr *attr)
 		return ERR_PTR(-ENOMEM);
 	}
 	/* open the persistent file */
-	bpf_persist_map_open(attr->map_id, attr->map_name, (void *)rb_map->rb, 1024);
+	// bpf_persist_map_open(attr->map_id, attr->map_name, (void *)rb_map->rb, 1024);
 
 	return &rb_map->map;
 }
@@ -235,7 +235,7 @@ static void ringbuf_map_free(struct bpf_map *map)
 
 	rb_map = container_of(map, struct bpf_ringbuf_map, map);
 	bpf_ringbuf_free(rb_map->rb);
-	bpf_persist_map_close(map->name);
+	// bpf_persist_map_close(map->name);
 	bpf_map_area_free(rb_map);
 }
 
@@ -498,7 +498,7 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 	/* update the persistent map header with the consumer and producer positions S
 	 * then write the data out to file */
 	unsigned int rec_idx = rec_pos / (hdr->len + 8);
-	bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_idx);
+	// bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_idx);
 
 	if (flags & BPF_RB_FORCE_WAKEUP)
 		irq_work_queue(&rb->work);

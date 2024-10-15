@@ -11,11 +11,12 @@
 #include <linux/types.h>
 #include <linux/fs.h>
 
+#define CCMAPS_MOUNT_PATH "/mnt/ccmaps"
 
 /* struct for ccmapd jobs */
 struct ccmapd_job {
 	struct file *file;
-	char *write_buffer; // start address of buffer that needs to be written
+	char *write_buffer; // start address of buffer to be written
 	u64 length;
 	loff_t offset;
 	bool done;
@@ -27,6 +28,17 @@ struct ccmapd_data {
 	struct ccmapd_job *jobs_head;
 	struct ccmapd_job *jobs_tail;
 };
+
+/* ebpf map to file table */
+struct ccmap {
+	struct file *file;
+	char name[16U];
+	uint32_t id;
+	spinlock_t lock;
+	uint32_t map_type;
+};
+
+
 
 /* ccmapd thread */
 int ccmapd(void *);

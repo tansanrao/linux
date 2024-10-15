@@ -85,6 +85,7 @@ BPF_PROG_TYPE(BPF_PROG_TYPE_NETFILTER, netfilter,
 #endif
 
 BPF_MAP_TYPE(BPF_MAP_TYPE_ARRAY, array_map_ops)
+BPF_MAP_TYPE(BPF_MAP_TYPE_CC_ARRAY, cc_array_map_ops)
 BPF_MAP_TYPE(BPF_MAP_TYPE_PERCPU_ARRAY, percpu_array_map_ops)
 BPF_MAP_TYPE(BPF_MAP_TYPE_PROG_ARRAY, prog_array_map_ops)
 BPF_MAP_TYPE(BPF_MAP_TYPE_PERF_EVENT_ARRAY, perf_event_array_map_ops)

@@ -14,14 +14,13 @@
 
 #define SCAN_INTERVAL_MS 10
 
-struct file **file;
-
-/* ccmapd related */
+/* ccmapd kthread requirements */
 unsigned int refcnt = 0;
 static struct task_struct *kth_ptr;
 struct ccmapd_data *ccmapd_data;
-unsigned long flags;
 
+/* for holding irq state */
+unsigned long flags;
 
 /* kthread for ccmapd */
 int ccmapd(void *data)
@@ -55,7 +54,6 @@ int bpf_persist_map_open(u32 id, char *name, void *rb_ptr, u32 size)
 {
 	/* Initialize ccmapd if it isn't already running */
 	if(refcnt == 0) {
-		file = kzalloc(sizeof(**file) * 2, GFP_ATOMIC);
 		/* setup ccmapd */
 		ccmapd_data =
 			kzalloc(sizeof(struct ccmapd_data), GFP_ATOMIC);
