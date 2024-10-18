@@ -40,6 +40,8 @@
 #include <net/netkit.h>
 #include <net/tcx.h>
 
+#include "persist.h" 
+
 #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_ARRAY_OF_MAPS)
@@ -1308,6 +1310,14 @@ static int map_create(union bpf_attr *attr)
 		return err;
 	}
 
+	/* open persistence log handle when needed */
+	switch (map_type) {
+	case BPF_MAP_TYPE_CC_ARRAY:
+		bpf_persist_map_open(map->id, map->name, 1);
+		break;
+	default:
+		break;
+	}
 	return err;
 
 free_map_sec:

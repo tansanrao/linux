@@ -14,6 +14,7 @@
 #include <linux/btf_ids.h>
 
 #include "map_in_map.h"
+#include "persist.h"
 
 #define ARRAY_CREATE_FLAG_MASK \
 	(BPF_F_NUMA_NODE | BPF_F_MMAPABLE | BPF_F_ACCESS_MASK | \
