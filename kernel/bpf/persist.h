@@ -74,7 +74,7 @@ int bpf_persist_kthread_init(void);
 int bpf_persist_map_open(u32 id, char *name, u32 map_type);
 
 /* write contents to a map */
-int bpf_persist_map_write(void);
+int ccmap_map_write(u32 id, void *data, size_t len, loff_t *pos);
 
 /* close the file */
 void bpf_persist_map_close(char *name);

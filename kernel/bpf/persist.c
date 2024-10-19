@@ -93,12 +93,12 @@ int ccmapd(void *data)
 	while (!kthread_should_stop()) {
 		// Check if job in queue
 		while (ccmap_job_dequeue(ccmapd_data->job_queue, &job) != -1) {
-			printk(KERN_INFO "[ccmapd]: job dequeued\n");
+			// printk(KERN_INFO "[ccmapd]: job dequeued\n");
 			if (job) {
 				BUG_ON(READ_ONCE(job->done));
 				kernel_write(job->file, job->data, job->len,
 					     job->pos);
-				printk(KERN_INFO "[ccmapd]: Written to disk\n");
+				// printk(KERN_INFO "[ccmapd]: Written to disk\n");
 				WRITE_ONCE(job->done, true);
 			} else {
 				printk(KERN_ERR
@@ -214,6 +214,13 @@ int bpf_persist_map_open(u32 id, char *name, u32 map_type)
 	/* update on disk index */
 
 	return 0;
+}
+
+int ccmap_map_write(u32 id, void *data, size_t len, loff_t *pos)
+{
+	__write(map_table[id]->file, data, len, pos);
+	return 0;
+	
 }
 
 void bpf_persist_map_close(char *name)

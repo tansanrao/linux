@@ -342,11 +342,15 @@ static long array_map_update_elem(struct bpf_map *map, void *key, void *value,
 			copy_map_value_locked(map, val, value, false);
 		else
 			copy_map_value(map, val, value);
+
+		/* Write the updated element to disk */
+		loff_t pos = index * array->elem_size;
+		ccmap_map_write(map->id, value, array->elem_size, &pos);
+		
 		bpf_obj_free_fields(array->map.record, val);
 	}
 	return 0;
 }
-
 int bpf_percpu_array_update(struct bpf_map *map, void *key, void *value,
 			    u64 map_flags)
 {
@@ -746,32 +750,6 @@ static u64 array_map_mem_usage(const struct bpf_map *map)
 
 BTF_ID_LIST_SINGLE(array_map_btf_ids, struct, bpf_array)
 const struct bpf_map_ops array_map_ops = {
-	.map_meta_equal = array_map_meta_equal,
-	.map_alloc_check = array_map_alloc_check,
-	.map_alloc = array_map_alloc,
-	.map_free = array_map_free,
-	.map_get_next_key = array_map_get_next_key,
-	.map_release_uref = array_map_free_timers,
-	.map_lookup_elem = array_map_lookup_elem,
-	.map_update_elem = array_map_update_elem,
-	.map_delete_elem = array_map_delete_elem,
-	.map_gen_lookup = array_map_gen_lookup,
-	.map_direct_value_addr = array_map_direct_value_addr,
-	.map_direct_value_meta = array_map_direct_value_meta,
-	.map_mmap = array_map_mmap,
-	.map_seq_show_elem = array_map_seq_show_elem,
-	.map_check_btf = array_map_check_btf,
-	.map_lookup_batch = generic_map_lookup_batch,
-	.map_update_batch = generic_map_update_batch,
-	.map_set_for_each_callback_args = map_set_for_each_callback_args,
-	.map_for_each_callback = bpf_for_each_array_elem,
-	.map_mem_usage = array_map_mem_usage,
-	.map_btf_id = &array_map_btf_ids[0],
-	.iter_seq_info = &iter_seq_info,
-};
-
-/* crash-consistent arraymap */
-const struct bpf_map_ops cc_array_map_ops = {
 	.map_meta_equal = array_map_meta_equal,
 	.map_alloc_check = array_map_alloc_check,
 	.map_alloc = array_map_alloc,

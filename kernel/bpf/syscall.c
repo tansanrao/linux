@@ -1192,7 +1192,6 @@ static int map_create(union bpf_attr *attr)
 	/* check privileged map type permissions */
 	switch (map_type) {
 	case BPF_MAP_TYPE_ARRAY:
-	case BPF_MAP_TYPE_CC_ARRAY:
 	case BPF_MAP_TYPE_PERCPU_ARRAY:
 	case BPF_MAP_TYPE_PROG_ARRAY:
 	case BPF_MAP_TYPE_PERF_EVENT_ARRAY:
@@ -1312,7 +1311,7 @@ static int map_create(union bpf_attr *attr)
 
 	/* open persistence log handle when needed */
 	switch (map_type) {
-	case BPF_MAP_TYPE_CC_ARRAY:
+	case BPF_MAP_TYPE_ARRAY:
 		bpf_persist_map_open(map->id, map->name, 1);
 		break;
 	default:
