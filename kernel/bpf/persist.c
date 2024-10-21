@@ -105,9 +105,10 @@ int ccmapd(void *data)
 				       "[ccmapd]: Job NULL for some reason\n");
 			}
 		}
+		cpu_relax();
 
 		// if queue empty, sleep until woken up
-		schedule_timeout_interruptible(MAX_SCHEDULE_TIMEOUT);
+		// schedule_timeout_interruptible(MAX_SCHEDULE_TIMEOUT);
 	}
 
 	printk(KERN_INFO "[ccmapd]: thread stopped\n");
@@ -204,7 +205,7 @@ int bpf_persist_map_open(u32 id, char *name, u32 map_type)
 	snprintf(filepath, sizeof(filepath), "%s/%s", CCMAPS_MOUNT_PATH,
 		 map->name);
 	map->file = filp_open(filepath,
-			      O_WRONLY | O_CREAT | O_TRUNC | O_LARGEFILE, 0644);
+			      O_WRONLY | O_CREAT | O_DSYNC | O_TRUNC | O_LARGEFILE, 0644);
 	if (IS_ERR(map->file)) {
 		printk(KERN_ERR "[ccmapd]: Error opening file\n");
 		// TODO: Cleanup memory
