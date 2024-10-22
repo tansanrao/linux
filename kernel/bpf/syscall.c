@@ -1314,6 +1314,9 @@ static int map_create(union bpf_attr *attr)
 	case BPF_MAP_TYPE_ARRAY:
 		bpf_persist_map_open(map->id, map->name, 1);
 		break;
+	case BPF_MAP_TYPE_RINGBUF:
+		bpf_persist_map_open(map->id, map->name, 2);
+		break;
 	default:
 		break;
 	}

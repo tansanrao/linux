@@ -72,6 +72,7 @@ struct bpf_ringbuf {
 	 */
 	unsigned long consumer_pos __aligned(PAGE_SIZE);
 	unsigned long producer_pos __aligned(PAGE_SIZE);
+	struct bpf_map *map; // Back pointer to the corresponding map
 	char data[] __aligned(PAGE_SIZE);
 };
 
@@ -209,7 +210,12 @@ static struct bpf_map *ringbuf_map_alloc(union bpf_attr *attr)
 		bpf_map_area_free(rb_map);
 		return ERR_PTR(-ENOMEM);
 	}
+
+	// set back pointer to map
+	rb_map->rb->map = &rb_map->map;
+	
 	/* open the persistent file */
+
 	// bpf_persist_map_open(attr->map_id, attr->map_name, (void *)rb_map->rb, 1024);
 
 	return &rb_map->map;
@@ -498,7 +504,8 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 	/* update the persistent map header with the consumer and producer positions S
 	 * then write the data out to file */
 	// unsigned int rec_idx = rec_pos / (hdr->len + 8);
-	// bpf_persist_map_write((struct bpf_ringbuf_record *)hdr, rec_idx);
+	loff_t pos = (hdr->pg_off * PAGE_SIZE);
+	ccmap_map_write(rb->map->id, (void *)rec_pos, new_len, &pos);
 
 	if (flags & BPF_RB_FORCE_WAKEUP)
 		irq_work_queue(&rb->work);
