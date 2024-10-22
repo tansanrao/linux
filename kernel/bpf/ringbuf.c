@@ -504,8 +504,8 @@ static void bpf_ringbuf_commit(void *sample, u64 flags, bool discard)
 	/* update the persistent map header with the consumer and producer positions S
 	 * then write the data out to file */
 	// unsigned int rec_idx = rec_pos / (hdr->len + 8);
-	loff_t pos = (hdr->pg_off * PAGE_SIZE);
-	ccmap_map_write(rb->map->id, (void *)rec_pos, new_len, &pos);
+	loff_t pos = (void *)hdr - (void *)rb;
+	ccmap_map_write(rb->map->id, (void *)hdr, hdr->len + BPF_RINGBUF_HDR_SZ, &pos);
 
 	if (flags & BPF_RB_FORCE_WAKEUP)
 		irq_work_queue(&rb->work);
